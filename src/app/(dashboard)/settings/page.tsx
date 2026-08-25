@@ -27,7 +27,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase/client";
 
 export default function SettingsPage() {
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, updateProfile, signOut } = useAuth();
   const { success, error: toastError } = useToast();
 
   const [fullName, setFullName] = useState("");
@@ -52,28 +52,31 @@ export default function SettingsPage() {
     e.preventDefault();
     setIsSaving(true);
     try {
+      await updateProfile({
+        fullName,
+        companyName: agencyName,
+      });
+
       if (user) {
-        // Update user metadata
-        const { error } = await supabase.auth.updateUser({
+        // Update user metadata in Supabase
+        await supabase.auth.updateUser({
           data: {
             full_name: fullName,
             company_name: agencyName,
           }
         });
 
-        if (error) {
-          throw error;
-        }
-
-        // Update profiles table
-        await supabase
-          .from("profiles")
-          .update({
-            full_name: fullName,
-            company_name: agencyName,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", user.id);
+        // Update profiles table if exists
+        try {
+          await supabase
+            .from("profiles")
+            .update({
+              full_name: fullName,
+              company_name: agencyName,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", user.id);
+        } catch {}
       }
 
       success("Profile & Settings Saved", "Your user profile and workspace configuration have been updated.");
