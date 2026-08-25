@@ -9,7 +9,7 @@ export interface UserProfile {
   id: string;
   email: string;
   fullName: string;
-  role: "agency" | "client" | "admin";
+  role: "agency" | "client" | "admin" | "freelancer" | "founder";
   companyName: string;
   techStack: string[];
   avatarUrl?: string;

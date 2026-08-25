@@ -29,6 +29,7 @@ import { Button, Input } from "@/lib/ui-index";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import { GoogleOnboardingModal } from "@/components/auth/GoogleOnboardingModal";
 
 import { getUserProjects } from "@/lib/services/projectService";
 import { Project } from "@/lib/types";
@@ -41,6 +42,7 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const [showNotifications, setShowNotifications] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
 
   const { user, profile, signOut } = useAuth();
 
@@ -54,7 +56,17 @@ export default function DashboardLayout({
       }
     }
     load();
-  }, []);
+
+    // Check if first-time onboarding popup should appear
+    if (typeof window !== "undefined") {
+      const isCompleted = localStorage.getItem("specguard_onboarding_completed");
+      const urlParams = new URLSearchParams(window.location.search);
+      const shouldPrompt = !isCompleted || urlParams.get("onboarding") === "true";
+      if (shouldPrompt && user) {
+        setIsOnboardingOpen(true);
+      }
+    }
+  }, [user]);
 
   const activeSpecsCount = projects.length;
   const activeDriftCount = projects.filter((p) => p.status === "Scope Drift Detected").length;
@@ -401,6 +413,12 @@ export default function DashboardLayout({
           {children}
         </main>
       </div>
+
+      {/* First-time Google Sign-In Profile Onboarding Wizard */}
+      <GoogleOnboardingModal
+        isOpen={isOnboardingOpen}
+        onClose={() => setIsOnboardingOpen(false)}
+      />
     </div>
   );
 }
