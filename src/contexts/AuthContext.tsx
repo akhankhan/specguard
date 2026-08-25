@@ -1,7 +1,7 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useMemo } from "react";
-import { User, Session, AuthError } from "@supabase/supabase-js";
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
@@ -9,7 +9,7 @@ export interface UserProfile {
   id: string;
   email: string;
   fullName?: string;
-  role?: "agency" | "freelancer" | "founder";
+  role: "agency" | "client" | "admin";
   companyName?: string;
   techStack?: string[];
   avatarUrl?: string;
@@ -20,40 +20,26 @@ interface AuthContextType {
   session: Session | null;
   profile: UserProfile | null;
   isLoading: boolean;
-  signInWithEmail: (email: string, password: string) => Promise<{ error: AuthError | null }>;
+  signInWithEmail: (email: string, password: string) => Promise<{ error: any }>;
   signUpWithEmail: (
-    email: string, 
-    password: string, 
+    email: string,
+    password: string,
     metadata?: { fullName?: string; role?: string; companyName?: string; techStack?: string[] }
-  ) => Promise<{ data: { user: User | null; session: Session | null } | null; error: AuthError | null }>;
-  signInWithOAuth: (provider: "google" | "github") => Promise<{ error: AuthError | null }>;
-  resetPassword: (email: string) => Promise<{ error: AuthError | null }>;
-  resendConfirmationEmail: (email: string) => Promise<{ error: AuthError | null }>;
+  ) => Promise<{ data: any; error: any }>;
+  signInWithOAuth: (provider: "google" | "github") => Promise<{ error: any }>;
+  resetPassword: (email: string) => Promise<{ error: any }>;
+  resendConfirmationEmail: (email: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-
-  // Derive profile from user metadata
-  const profile = useMemo<UserProfile | null>(() => {
-    if (!user) return null;
-    const meta = user.user_metadata || {};
-    return {
-      id: user.id,
-      email: user.email || "",
-      fullName: meta.full_name || meta.fullName || user.email?.split("@")[0] || "User",
-      role: meta.role || "agency",
-      companyName: meta.company_name || meta.companyName || "Apex Digital Studio",
-      techStack: meta.tech_stack || meta.techStack || ["Next.js", "React Native", "PostgreSQL"],
-      avatarUrl: meta.avatar_url || meta.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${user.email || "SpecGuard"}`,
-    };
-  }, [user]);
+  const router = useRouter();
 
   useEffect(() => {
     // Get initial session
@@ -86,6 +72,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Update profile when user changes
+  useEffect(() => {
+    if (user) {
+      const meta = user.user_metadata || {};
+      setProfile({
+        id: user.id,
+        email: user.email || "",
+        fullName: meta.full_name || meta.name || user.email?.split("@")[0],
+        role: (meta.role as any) || "agency",
+        companyName: meta.company_name || meta.companyName || "Apex Digital Studio",
+        techStack: meta.tech_stack || ["Next.js", "Tailwind", "Supabase"],
+        avatarUrl: meta.avatar_url || meta.picture || undefined,
+      });
+    } else {
+      setProfile(null);
+    }
+  }, [user]);
+
   const signInWithEmail = async (email: string, password: string) => {
     setIsLoading(true);
     try {
@@ -106,7 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   ) => {
     setIsLoading(true);
     try {
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      const origin = typeof window !== "undefined" ? window.location.origin : (process.env.NEXT_PUBLIC_APP_URL || "");
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -127,18 +131,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signInWithOAuth = async (provider: "google" | "github") => {
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const { error } = await supabase.auth.signInWithOAuth({
+    const origin = typeof window !== "undefined" ? window.location.origin : (process.env.NEXT_PUBLIC_APP_URL || "");
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
         redirectTo: `${origin}/auth/callback`,
+        queryParams: {
+          access_type: "offline",
+          prompt: "select_account",
+        },
       },
     });
+
+    if (data?.url) {
+      window.location.href = data.url;
+    }
     return { error };
   };
 
   const resetPassword = async (email: string) => {
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const origin = typeof window !== "undefined" ? window.location.origin : (process.env.NEXT_PUBLIC_APP_URL || "");
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${origin}/auth/callback?next=/settings`,
     });
@@ -146,7 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const resendConfirmationEmail = async (email: string) => {
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const origin = typeof window !== "undefined" ? window.location.origin : (process.env.NEXT_PUBLIC_APP_URL || "");
     const { error } = await supabase.auth.resend({
       type: "signup",
       email,
@@ -160,10 +172,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     setIsLoading(true);
     try {
+      // 1. Call server-side signout endpoint to expire cookies
+      try {
+        await fetch("/api/auth/signout", { method: "POST" });
+      } catch (e) {
+        console.warn("Signout fetch error:", e);
+      }
+
+      // 2. Client-side Supabase signOut
       await supabase.auth.signOut();
       setUser(null);
       setSession(null);
-      router.push("/login");
+      setProfile(null);
+
+      // 3. Clear browser sessions
+      if (typeof window !== "undefined") {
+        sessionStorage.clear();
+        // 4. Hard redirect to /login
+        window.location.href = "/login";
+      }
+    } catch (err) {
+      console.error("Sign out error:", err);
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
     } finally {
       setIsLoading(false);
     }
