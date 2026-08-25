@@ -32,7 +32,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning className={`${fontSans.variable} ${fontMono.variable}`}>
-      <body className="font-sans bg-background text-foreground min-h-screen antialiased flex flex-col transition-colors duration-150 selection:bg-sky-500/20 selection:text-sky-900 dark:selection:text-sky-200">
+      <body suppressHydrationWarning className="font-sans bg-background text-foreground min-h-screen antialiased flex flex-col transition-colors duration-150 selection:bg-sky-500/20 selection:text-sky-900 dark:selection:text-sky-200">
         <ThemeProvider>
           <AuthProvider>
             <ToastProvider>{children}</ToastProvider>
