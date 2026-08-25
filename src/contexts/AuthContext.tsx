@@ -8,10 +8,10 @@ import { useRouter } from "next/navigation";
 export interface UserProfile {
   id: string;
   email: string;
-  fullName?: string;
+  fullName: string;
   role: "agency" | "client" | "admin";
-  companyName?: string;
-  techStack?: string[];
+  companyName: string;
+  techStack: string[];
   avatarUrl?: string;
 }
 
@@ -30,6 +30,7 @@ interface AuthContextType {
   resetPassword: (email: string) => Promise<{ error: any }>;
   resendConfirmationEmail: (email: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
+  updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -41,54 +42,114 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
+  // Helper to extract clean profile from user
+  const extractProfile = (currentUser: User | null): UserProfile => {
+    if (!currentUser) {
+      if (typeof window !== "undefined") {
+        const savedCustomProfile = localStorage.getItem("specguard_custom_profile");
+        if (savedCustomProfile) {
+          try {
+            return JSON.parse(savedCustomProfile);
+          } catch {}
+        }
+      }
+      return {
+        id: "guest-user",
+        email: "agency@specguard.ai",
+        fullName: "Agency Partner",
+        role: "agency",
+        companyName: "Apex Digital Studio",
+        techStack: ["Next.js", "Tailwind", "Supabase", "Llama 3.3"],
+      };
+    }
+
+    const meta = currentUser.user_metadata || {};
+    const identities = currentUser.identities || [];
+    const identityData = identities[0]?.identity_data || {};
+
+    const email = 
+      currentUser.email || 
+      meta.email || 
+      identityData.email || 
+      "";
+
+    const fullName = 
+      meta.full_name || 
+      meta.name || 
+      identityData.full_name || 
+      identityData.name || 
+      (email ? email.split("@")[0].replace(/[._-]/g, " ") : "Agency Partner");
+
+    const avatarUrl = 
+      meta.avatar_url || 
+      meta.picture || 
+      identityData.avatar_url || 
+      identityData.picture || 
+      undefined;
+
+    const companyName = 
+      meta.company_name || 
+      meta.companyName || 
+      (fullName ? `${fullName}'s Studio` : "Apex Digital Studio");
+
+    return {
+      id: currentUser.id,
+      email,
+      fullName,
+      role: (meta.role as any) || "agency",
+      companyName,
+      techStack: meta.tech_stack || ["Next.js", "Tailwind", "Supabase"],
+      avatarUrl,
+    };
+  };
+
   useEffect(() => {
-    // Get initial session
+    let isMounted = true;
+
     const getInitialSession = async () => {
       try {
-        const { data: { session: initialSession }, error } = await supabase.auth.getSession();
-        if (error) {
-          console.warn("Supabase getSession warning:", error.message);
+        const [{ data: sessionData }, { data: userData }] = await Promise.all([
+          supabase.auth.getSession(),
+          supabase.auth.getUser(),
+        ]);
+
+        if (isMounted) {
+          const currentSession = sessionData?.session ?? null;
+          const currentUser = userData?.user ?? currentSession?.user ?? null;
+
+          setSession(currentSession);
+          setUser(currentUser);
+          setProfile(extractProfile(currentUser));
         }
-        setSession(initialSession);
-        setUser(initialSession?.user ?? null);
       } catch (err) {
         console.warn("Supabase initialization error:", err);
+        if (isMounted) {
+          setProfile(extractProfile(null));
+        }
       } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     };
 
     getInitialSession();
 
-    // Listen for auth state changes
+    // Listen for real-time auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-      setUser(newSession?.user ?? null);
-      setIsLoading(false);
+      if (isMounted) {
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
+        setProfile(extractProfile(newSession?.user ?? null));
+        setIsLoading(false);
+      }
     });
 
     return () => {
+      isMounted = false;
       subscription.unsubscribe();
     };
   }, []);
-
-  // Update profile when user changes
-  useEffect(() => {
-    if (user) {
-      const meta = user.user_metadata || {};
-      setProfile({
-        id: user.id,
-        email: user.email || "",
-        fullName: meta.full_name || meta.name || user.email?.split("@")[0],
-        role: (meta.role as any) || "agency",
-        companyName: meta.company_name || meta.companyName || "Apex Digital Studio",
-        techStack: meta.tech_stack || ["Next.js", "Tailwind", "Supabase"],
-        avatarUrl: meta.avatar_url || meta.picture || undefined,
-      });
-    } else {
-      setProfile(null);
-    }
-  }, [user]);
 
   const signInWithEmail = async (email: string, password: string) => {
     setIsLoading(true);
@@ -115,7 +176,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email,
         password,
         options: {
-          emailRedirectTo: `${origin}/auth/callback`,
+          emailRedirectTo: `${origin}/auth/callback?next=/dashboard`,
           data: {
             full_name: metadata?.fullName,
             role: metadata?.role || "agency",
@@ -163,32 +224,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       type: "signup",
       email,
       options: {
-        emailRedirectTo: `${origin}/auth/callback`,
+        emailRedirectTo: `${origin}/auth/callback?next=/dashboard`,
       },
     });
     return { error };
   };
 
+  const updateProfile = async (updates: Partial<UserProfile>) => {
+    const newProfile = { ...profile, ...updates } as UserProfile;
+    setProfile(newProfile);
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem("specguard_custom_profile", JSON.stringify(newProfile));
+    }
+
+    if (user) {
+      try {
+        await supabase.auth.updateUser({
+          data: {
+            full_name: updates.fullName,
+            company_name: updates.companyName,
+          },
+        });
+      } catch (err) {
+        console.warn("Supabase profile update warning:", err);
+      }
+    }
+  };
+
   const signOut = async () => {
     setIsLoading(true);
     try {
-      // 1. Call server-side signout endpoint to expire cookies
       try {
         await fetch("/api/auth/signout", { method: "POST" });
       } catch (e) {
         console.warn("Signout fetch error:", e);
       }
 
-      // 2. Client-side Supabase signOut
       await supabase.auth.signOut();
       setUser(null);
       setSession(null);
-      setProfile(null);
+      setProfile(extractProfile(null));
 
-      // 3. Clear browser sessions
       if (typeof window !== "undefined") {
         sessionStorage.clear();
-        // 4. Hard redirect to /login
         window.location.href = "/login";
       }
     } catch (err) {
@@ -214,6 +293,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         resetPassword,
         resendConfirmationEmail,
         signOut,
+        updateProfile,
       }}
     >
       {children}

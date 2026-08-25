@@ -297,12 +297,20 @@ export default function DashboardLayout({
           {/* User Footer Account & Actions */}
           <div className="flex items-center justify-between pt-1">
             <div className="flex items-center gap-2.5 overflow-hidden min-w-0">
-              <div className="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 flex items-center justify-center font-bold text-xs text-zinc-700 dark:text-zinc-200 shrink-0">
-                {initials}
-              </div>
+              {profile?.avatarUrl ? (
+                <img
+                  src={profile.avatarUrl}
+                  alt={displayName}
+                  className="w-8 h-8 rounded-full object-cover border border-zinc-300 dark:border-zinc-700 shrink-0"
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 flex items-center justify-center font-bold text-xs text-zinc-700 dark:text-zinc-200 shrink-0">
+                  {initials}
+                </div>
+              )}
               <div className="overflow-hidden min-w-0">
                 <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate">{displayName}</p>
-                <p className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate">{user?.email || "alex@apexstudios.dev"}</p>
+                <p className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate">{profile?.email || user?.email || "agency@specguard.ai"}</p>
               </div>
             </div>
 

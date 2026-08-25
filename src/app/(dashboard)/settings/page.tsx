@@ -85,14 +85,14 @@ export default function SettingsPage() {
     }
   };
 
-  const displayName = fullName || profile?.fullName || user?.email?.split("@")[0] || "User";
-  const userEmail = user?.email || "No email available";
+  const displayName = fullName || profile?.fullName || user?.email?.split("@")[0] || "Agency Partner";
+  const userEmail = profile?.email || user?.email || "agency@specguard.ai";
   const initials = displayName
     .split(" ")
     .map((n) => n[0])
     .join("")
     .substring(0, 2)
-    .toUpperCase() || "US";
+    .toUpperCase() || "AP";
 
   const memberSince = user?.created_at 
     ? new Date(user.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
@@ -129,9 +129,17 @@ export default function SettingsPage() {
           {/* User Identity Highlight Banner */}
           <div className="p-5 rounded-2xl bg-gradient-to-r from-sky-50/80 to-indigo-50/60 dark:from-sky-950/40 dark:to-indigo-950/30 border border-sky-200/80 dark:border-sky-800/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3.5">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-sky-500 to-indigo-600 text-white font-bold text-base flex items-center justify-center shadow-sm shrink-0">
-                {initials}
-              </div>
+              {profile?.avatarUrl ? (
+                <img
+                  src={profile.avatarUrl}
+                  alt={displayName}
+                  className="w-12 h-12 rounded-2xl object-cover border border-sky-300 dark:border-sky-700 shadow-sm shrink-0"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-sky-500 to-indigo-600 text-white font-bold text-base flex items-center justify-center shadow-sm shrink-0">
+                  {initials}
+                </div>
+              )}
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{displayName}</h4>
