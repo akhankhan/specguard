@@ -2,11 +2,14 @@
 
 import React from "react";
 import Link from "next/link";
-import { Shield, Sparkles, ArrowRight, Layers, FileCode } from "lucide-react";
+import { Shield, Sparkles, ArrowRight, Layers, FileCode, LayoutDashboard } from "lucide-react";
 import { Button } from "@/lib/ui-index";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { useAuth } from "@/contexts/AuthContext";
 
 export function Navbar() {
+  const { user } = useAuth();
+
   return (
     <header className="sticky top-0 z-40 w-full border-b border-zinc-200/80 dark:border-zinc-800/80 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-lg transition-colors">
       <div className="max-w-7xl mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
@@ -53,22 +56,34 @@ export function Navbar() {
         {/* CTA Buttons & Theme Toggle */}
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <Link href="/login">
-            <Button variant="ghost" size="sm" className="text-xs font-medium">
-              Sign In
-            </Button>
-          </Link>
-          <Link href="/signup">
-            <Button variant="outline" size="sm" className="text-xs font-semibold hidden sm:inline-flex bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800">
-              Sign Up
-            </Button>
-          </Link>
-          <Link href="/projects/new">
-            <Button variant="glow" size="sm" className="text-xs gap-1.5 font-semibold shadow-xs">
-              <span>Start Free Trial</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </Button>
-          </Link>
+          {user ? (
+            <Link href="/dashboard">
+              <Button variant="glow" size="sm" className="text-xs gap-1.5 font-semibold shadow-xs">
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                <span>Go to Dashboard</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Button>
+            </Link>
+          ) : (
+            <>
+              <Link href="/login">
+                <Button variant="ghost" size="sm" className="text-xs font-medium">
+                  Sign In
+                </Button>
+              </Link>
+              <Link href="/signup">
+                <Button variant="outline" size="sm" className="text-xs font-semibold hidden sm:inline-flex bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800">
+                  Sign Up
+                </Button>
+              </Link>
+              <Link href="/login">
+                <Button variant="glow" size="sm" className="text-xs gap-1.5 font-semibold shadow-xs">
+                  <span>Start Free Trial</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Button>
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </header>

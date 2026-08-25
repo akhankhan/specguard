@@ -25,8 +25,10 @@ import { Button, Card } from "@/lib/ui-index";
 import { Navbar } from "@/components/landing/Navbar";
 import { BeforeAfterDemo } from "@/components/landing/BeforeAfterDemo";
 import { ScopeDiffSimulator } from "@/components/landing/ScopeDiffSimulator";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function LandingPage() {
+  const { user } = useAuth();
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col selection:bg-sky-500/30 selection:text-sky-800 dark:selection:text-sky-200 transition-colors">
       {/* Sticky Header */}
