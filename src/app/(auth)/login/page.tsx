@@ -110,17 +110,12 @@ function LoginForm() {
     try {
       const { error: authError } = await signInWithOAuth(provider);
       if (authError) {
-        // Fallback for offline/demo if key is placeholder
-        if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-          success(`Authenticated via ${provider}`, "Redirecting to your agency workspace...");
-          router.push(redirectTo);
-          return;
-        }
-        error("OAuth Error", authError.message || `Could not sign in with ${provider}.`);
+        error("Google Sign-In Error", authError.message || `Could not connect to ${provider}.`);
+        setIsLoading(false);
       }
+      // If successful, signInWithOAuth automatically redirects browser to Google URL
     } catch (err: any) {
-      error("OAuth Failed", err?.message || "Social sign-in could not be completed.");
-    } finally {
+      error("OAuth Failed", err?.message || "Google sign-in could not be initialized.");
       setIsLoading(false);
     }
   };

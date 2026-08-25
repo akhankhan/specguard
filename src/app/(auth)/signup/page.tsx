@@ -138,18 +138,13 @@ export default function SignupPage() {
     setIsLoading(true);
     try {
       const { error: authError } = await signInWithOAuth(provider);
-      if (authError && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-        error("OAuth Error", authError.message);
-        return;
+      if (authError) {
+        error("OAuth Error", authError.message || `Could not connect to ${provider}.`);
+        setIsLoading(false);
       }
-      try {
-        confetti({ particleCount: 60, spread: 60, origin: { y: 0.6 } });
-      } catch (err) {}
-      success(`Signed up with ${provider}`, "Creating your agency workspace...");
-      router.push("/dashboard");
+      // If successful, signInWithOAuth automatically redirects browser to Google URL
     } catch (err: any) {
       error("OAuth Failed", err?.message || "Social sign-up could not be completed.");
-    } finally {
       setIsLoading(false);
     }
   };
