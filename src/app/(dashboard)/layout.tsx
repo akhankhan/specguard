@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { 
   Shield, 
   LayoutDashboard, 
@@ -16,14 +16,14 @@ import {
   ChevronDown, 
   LogOut, 
   User, 
-  ExternalLink,
-  Sparkles,
-  CheckCircle2,
-  FileCode,
-  ShieldCheck,
-  Zap,
-  TrendingUp,
-  Layers
+  ExternalLink, 
+  Sparkles, 
+  CheckCircle2, 
+  FileCode, 
+  ShieldCheck, 
+  Zap, 
+  TrendingUp, 
+  Layers 
 } from "lucide-react";
 import { Button, Input } from "@/lib/ui-index";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
@@ -40,11 +40,20 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [showNotifications, setShowNotifications] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
 
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, isLoading, signOut } = useAuth();
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      if (typeof window !== "undefined") {
+        window.location.replace("/login");
+      }
+    }
+  }, [isLoading, user]);
 
   useEffect(() => {
     async function load() {
@@ -58,11 +67,22 @@ export default function DashboardLayout({
     load();
 
     // Check if first-time onboarding popup should appear
-    if (typeof window !== "undefined") {
-      const isCompleted = localStorage.getItem("specguard_onboarding_completed");
+    if (typeof window !== "undefined" && user) {
+      const isCompleted = 
+        localStorage.getItem(`specguard_onboarding_${user.id}`) === "true" ||
+        localStorage.getItem("specguard_onboarding_completed") === "true";
+        
       const urlParams = new URLSearchParams(window.location.search);
-      const shouldPrompt = !isCompleted || urlParams.get("onboarding") === "true";
-      if (shouldPrompt && user) {
+      const isExplicitOnboarding = urlParams.get("onboarding") === "true";
+      
+      // Clean query parameter if present so it doesn't trigger repeatedly on refreshes
+      if (isExplicitOnboarding) {
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete("onboarding");
+        window.history.replaceState({}, "", cleanUrl.toString());
+      }
+
+      if (!isCompleted || isExplicitOnboarding) {
         setIsOnboardingOpen(true);
       }
     }
@@ -136,6 +156,15 @@ export default function DashboardLayout({
     .join("")
     .substring(0, 2)
     .toUpperCase() || "AD";
+
+  if (isLoading || !user) {
+    return (
+      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex flex-col items-center justify-center space-y-3">
+        <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-xs text-zinc-500 font-mono">Verifying secure session...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-zinc-50/60 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex flex-col md:flex-row transition-colors font-sans">
@@ -313,6 +342,7 @@ export default function DashboardLayout({
                 <img
                   src={profile.avatarUrl}
                   alt={displayName}
+                  referrerPolicy="no-referrer"
                   className="w-8 h-8 rounded-full object-cover border border-zinc-300 dark:border-zinc-700 shrink-0"
                 />
               ) : (
@@ -322,7 +352,7 @@ export default function DashboardLayout({
               )}
               <div className="overflow-hidden min-w-0">
                 <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate">{displayName}</p>
-                <p className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate">{profile?.email || user?.email || "agency@specguard.ai"}</p>
+                <p className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate">{user?.email || profile?.email || ""}</p>
               </div>
             </div>
 
@@ -417,7 +447,13 @@ export default function DashboardLayout({
       {/* First-time Google Sign-In Profile Onboarding Wizard */}
       <GoogleOnboardingModal
         isOpen={isOnboardingOpen}
-        onClose={() => setIsOnboardingOpen(false)}
+        onClose={() => {
+          setIsOnboardingOpen(false);
+          if (typeof window !== "undefined" && user) {
+            localStorage.setItem(`specguard_onboarding_${user.id}`, "true");
+            localStorage.setItem("specguard_onboarding_completed", "true");
+          }
+        }}
       />
     </div>
   );

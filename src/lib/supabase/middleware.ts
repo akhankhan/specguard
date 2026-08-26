@@ -15,34 +15,6 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/settings") ||
     pathname.startsWith("/billing");
 
-  // Fast check: look for presence of active Supabase auth token cookies
-  const allCookies = request.cookies.getAll();
-  const hasAuthCookie = allCookies.some(
-    (c) => c.name.startsWith("sb-") && c.name.includes("auth-token")
-  );
-
-  // 1. Instant Redirect for unauthenticated users accessing protected routes (0ms delay)
-  if (isProtectedRoute && !hasAuthCookie) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    url.searchParams.set("redirectTo", pathname);
-    return NextResponse.redirect(url);
-  }
-
-  // 2. Instant Pass-through for authenticated users navigating between dashboard pages (0ms delay)
-  // This completely eliminates the 1-2 second remote network roundtrip on every sidebar tab click!
-  if (isProtectedRoute && hasAuthCookie) {
-    return supabaseResponse;
-  }
-
-  // 3. If authenticated user visits /login or /signup, redirect to /dashboard
-  if (isAuthRoute && hasAuthCookie) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
-  }
-
-  // 4. Fallback for root / or other paths: safe background session refresh
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://exdrecljspacwaduslrb.supabase.co";
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV4ZHJlY2xqc3BhY3dhZHVzbHJiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc0NzY3NTksImV4cCI6MjEwMzA1Mjc1OX0.G_7rALiQ7E6wnLoPCDYHpqLZJPfD9A-o9QGW6d_RaFY";
 
@@ -66,6 +38,35 @@ export async function updateSession(request: NextRequest) {
       },
     },
   });
+
+  // Verify actual authenticated user
+  const { data: { user } } = await supabase.auth.getUser();
+
+  // 1. Unauthenticated users trying to access protected routes -> Redirect to /login
+  if (isProtectedRoute && !user) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    url.searchParams.set("redirectTo", pathname);
+    const redirectRes = NextResponse.redirect(url);
+    redirectRes.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    redirectRes.headers.set("Pragma", "no-cache");
+    redirectRes.headers.set("Expires", "0");
+    return redirectRes;
+  }
+
+  // 2. Authenticated users visiting /login or /signup -> Redirect to /dashboard
+  if (isAuthRoute && user) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard";
+    return NextResponse.redirect(url);
+  }
+
+  // Attach no-store cache headers to protected responses
+  if (isProtectedRoute) {
+    supabaseResponse.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    supabaseResponse.headers.set("Pragma", "no-cache");
+    supabaseResponse.headers.set("Expires", "0");
+  }
 
   return supabaseResponse;
 }

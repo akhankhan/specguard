@@ -67,7 +67,7 @@ export default function LandingPage() {
 
             {/* CTAs */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-2">
-              <Link href="/projects/new">
+              <Link href="/signup">
                 <Button variant="glow" size="lg" className="h-12 px-8 text-base gap-2">
                   <span>Start Free Spec Analysis</span>
                   <ArrowRight className="w-4 h-4" />
@@ -380,7 +380,7 @@ export default function LandingPage() {
                 </ul>
               </div>
 
-              <Link href="/projects/new">
+              <Link href="/signup">
                 <Button variant="outline" className="w-full text-xs">
                   Get Started Free
                 </Button>
@@ -429,7 +429,7 @@ export default function LandingPage() {
                   </ul>
                 </div>
 
-                <Link href="/projects/new">
+                <Link href="/signup">
                   <Button variant="glow" className="w-full text-xs">
                     Start 14-Day Pro Trial
                   </Button>
@@ -468,7 +468,7 @@ export default function LandingPage() {
                 </ul>
               </div>
 
-              <Link href="/projects/new">
+              <Link href="/signup">
                 <Button variant="outline" className="w-full text-xs">
                   Contact Agency Sales
                 </Button>

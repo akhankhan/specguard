@@ -88,14 +88,14 @@ export default function SettingsPage() {
     }
   };
 
-  const displayName = fullName || profile?.fullName || user?.email?.split("@")[0] || "Agency Partner";
-  const userEmail = profile?.email || user?.email || "agency@specguard.ai";
+  const displayName = fullName || profile?.fullName || (user?.email ? user.email.split("@")[0] : "Workspace User");
+  const userEmail = user?.email || profile?.email || "";
   const initials = displayName
     .split(" ")
     .map((n) => n[0])
     .join("")
     .substring(0, 2)
-    .toUpperCase() || "AP";
+    .toUpperCase() || "WU";
 
   const memberSince = user?.created_at 
     ? new Date(user.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
@@ -136,6 +136,7 @@ export default function SettingsPage() {
                 <img
                   src={profile.avatarUrl}
                   alt={displayName}
+                  referrerPolicy="no-referrer"
                   className="w-12 h-12 rounded-2xl object-cover border border-sky-300 dark:border-sky-700 shadow-sm shrink-0"
                 />
               ) : (

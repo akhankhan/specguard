@@ -10,71 +10,99 @@ import {
 } from "@/lib/types";
 
 // Local Storage Keys
-const LOCAL_PROJECTS_KEY = "specguard_projects_catalog";
-const LOCAL_PROJECT_PREFIX = "specguard_project_";
+const LEGACY_PROJECTS_KEY = "specguard_projects_catalog";
+const LEGACY_PROJECT_PREFIX = "specguard_project_";
 
-// In-memory fast cache
+export const getProjectsCatalogKey = (userId?: string | null) => 
+  userId ? `specguard_projects_${userId}` : `specguard_projects_guest`;
+
+export const getProjectDetailKey = (projectId: string, userId?: string | null) => 
+  userId ? `specguard_proj_${userId}_${projectId}` : `specguard_proj_guest_${projectId}`;
+
+// In-memory fast cache scoped by user
+let _cachedUserId: string | null = null;
 let _inMemoryProjectsCache: Project[] | null = null;
 let _lastProjectsFetchTime = 0;
-const CACHE_TTL_MS = 20000; // 20s in-memory TTL
+const CACHE_TTL_MS = 15000; // 15s in-memory TTL
 
 export function invalidateProjectsCache() {
   _inMemoryProjectsCache = null;
+  _cachedUserId = null;
   _lastProjectsFetchTime = 0;
 }
 
 /**
- * Fetch all projects for the user with hybrid Supabase + Local Cache fallback
+ * Fetch all projects for the user with hybrid Supabase + User-Scoped Local Cache
  */
 export async function getUserProjects(forceRefresh = false): Promise<Project[]> {
   const now = Date.now();
+
+  let user: any = null;
+  try {
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    user = session?.user || null;
+  } catch (e) {
+    console.warn("Error getting session:", e);
+  }
+
+  const currentUserId = user?.id || null;
+
+  // Invalidate cache if user switched
+  if (_cachedUserId !== currentUserId) {
+    _inMemoryProjectsCache = null;
+    _cachedUserId = currentUserId;
+  }
+
   if (!forceRefresh && _inMemoryProjectsCache && (now - _lastProjectsFetchTime < CACHE_TTL_MS)) {
     return _inMemoryProjectsCache;
   }
 
-  const localProjects: Project[] = [];
+  // Load user-scoped local projects
+  const scopedKey = getProjectsCatalogKey(currentUserId);
+  let localProjects: Project[] = [];
   
   if (typeof window !== "undefined") {
     try {
-      const stored = localStorage.getItem(LOCAL_PROJECTS_KEY);
+      // Clean up legacy shared key if it exists to avoid polluting new users
+      if (localStorage.getItem(LEGACY_PROJECTS_KEY)) {
+        localStorage.removeItem(LEGACY_PROJECTS_KEY);
+      }
+
+      const stored = localStorage.getItem(scopedKey);
       if (stored) {
-        localProjects.push(...JSON.parse(stored));
+        localProjects = JSON.parse(stored);
       }
     } catch (e) {
       console.warn("Local storage read error:", e);
     }
   }
 
-  // If we already have local projects, set memory cache immediately to prevent UI blocking
-  if (localProjects.length > 0 && !_inMemoryProjectsCache) {
+  // If user is guest (not authenticated), return guest local projects
+  if (!user) {
     _inMemoryProjectsCache = localProjects;
     _lastProjectsFetchTime = now;
+    return localProjects;
   }
 
+  // If user is authenticated, query Supabase strictly for their user_id
   try {
     const supabase = createClient();
-    const { data: { session } } = await supabase.auth.getSession();
-    const user = session?.user;
-
-    if (!user) {
-      _inMemoryProjectsCache = localProjects;
-      _lastProjectsFetchTime = now;
-      return localProjects;
-    }
-
     const { data, error } = await supabase
       .from("projects")
       .select("*")
       .eq("user_id", user.id)
       .order("updated_at", { ascending: false });
 
-    if (error || !data || data.length === 0) {
+    if (error) {
+      console.warn("Supabase query error, falling back to user local cache:", error.message);
       _inMemoryProjectsCache = localProjects;
       _lastProjectsFetchTime = now;
       return localProjects;
     }
 
-    const supabaseProjects: Project[] = data.map((row: any) => ({
+    // If query succeeded, use real Supabase data (even if 0 items -> genuine zero state)
+    const supabaseProjects: Project[] = (data || []).map((row: any) => ({
       id: row.id,
       name: row.name,
       clientName: row.client_name,
@@ -98,15 +126,18 @@ export async function getUserProjects(forceRefresh = false): Promise<Project[]> 
       outOfScope: row.out_of_scope || [],
     }));
 
-    // Merge Supabase projects with any newly created local projects
-    const idSet = new Set(supabaseProjects.map((p) => p.id));
-    const merged = [...supabaseProjects, ...localProjects.filter((p) => !idSet.has(p.id))];
-    
-    _inMemoryProjectsCache = merged;
+    // Update user-scoped local cache
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(scopedKey, JSON.stringify(supabaseProjects));
+      } catch (e) {}
+    }
+
+    _inMemoryProjectsCache = supabaseProjects;
     _lastProjectsFetchTime = now;
-    return merged;
+    return supabaseProjects;
   } catch (err) {
-    console.warn("Using local projects catalog due to network/Supabase state:", err);
+    console.warn("Using user local projects catalog due to network state:", err);
     _inMemoryProjectsCache = localProjects;
     _lastProjectsFetchTime = now;
     return localProjects;
@@ -124,11 +155,21 @@ export async function getProjectById(projectId: string): Promise<{
   clarifications: ClarificationQuestion[];
   scopeDiff: { summary: ScopeGuardSummary; items: ScopeDiffItem[] } | null;
 }> {
+  let user: any = null;
+  try {
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    user = session?.user || null;
+  } catch (e) {}
+
+  const currentUserId = user?.id || null;
+  const detailKey = getProjectDetailKey(projectId, currentUserId);
+
   // Check local cache first as fallback
   let localData: any = null;
   if (typeof window !== "undefined") {
     try {
-      const stored = localStorage.getItem(`${LOCAL_PROJECT_PREFIX}${projectId}`);
+      const stored = localStorage.getItem(detailKey) || localStorage.getItem(`${LEGACY_PROJECT_PREFIX}${projectId}`);
       if (stored) {
         localData = JSON.parse(stored);
       }
@@ -141,11 +182,12 @@ export async function getProjectById(projectId: string): Promise<{
     const supabase = createClient();
 
     // Query Supabase for the project
-    const { data: projectRow, error: pError } = await supabase
+    const query = supabase
       .from("projects")
       .select("*")
-      .eq("id", projectId)
-      .maybeSingle();
+      .eq("id", projectId);
+
+    const { data: projectRow, error: pError } = await query.maybeSingle();
 
     if (pError || !projectRow) {
       if (localData) {
@@ -239,7 +281,7 @@ export async function getProjectById(projectId: string): Promise<{
       question: c.question,
       contextQuote: c.context_quote || "",
       documentSource: c.document_source || "",
-      whyItMatters: c.why_it_matters || "",
+      whyItMatters: c.whyItMatters || "",
       inputType: c.input_type || "single_select",
       options: c.options || [],
       selectedAnswer: c.selected_answer,
@@ -256,11 +298,11 @@ export async function getProjectById(projectId: string): Promise<{
       };
     }
 
-    // Save to local cache as backup
+    // Save to user-scoped local cache as backup
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem(
-          `${LOCAL_PROJECT_PREFIX}${projectId}`,
+          detailKey,
           JSON.stringify({ project, requirements, userStories, diagrams, clarifications, scopeDiff })
         );
       } catch (e) {}
@@ -293,20 +335,31 @@ export async function getProjectById(projectId: string): Promise<{
  * Lock Baseline for a project (v1.0 approved)
  */
 export async function lockProjectBaseline(projectId: string): Promise<boolean> {
+  let user: any = null;
+  try {
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    user = session?.user || null;
+  } catch (e) {}
+
+  const detailKey = getProjectDetailKey(projectId, user?.id);
+
   // Update local cache
   if (typeof window !== "undefined") {
     try {
-      const stored = localStorage.getItem(`${LOCAL_PROJECT_PREFIX}${projectId}`);
+      const stored = localStorage.getItem(detailKey);
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed.project) {
           parsed.project.status = "Baseline Locked";
           parsed.project.baselineLockedAt = new Date().toISOString();
-          localStorage.setItem(`${LOCAL_PROJECT_PREFIX}${projectId}`, JSON.stringify(parsed));
+          localStorage.setItem(detailKey, JSON.stringify(parsed));
         }
       }
     } catch (e) {}
   }
+
+  invalidateProjectsCache();
 
   try {
     const supabase = createClient();
@@ -353,7 +406,7 @@ export async function answerClarificationQuestion(
 
 /**
  * Save complete AI Blueprint (Project, Requirements, Stories, Diagrams, Clarifications)
- * into both Persistent Local Storage Cache & Supabase PostgreSQL
+ * into both Persistent User-Scoped Local Storage Cache & Supabase PostgreSQL
  */
 export async function saveAIProjectToSupabase(
   projectId: string,
@@ -368,6 +421,17 @@ export async function saveAIProjectToSupabase(
     briefText?: string;
   }
 ): Promise<boolean> {
+  let user: any = null;
+  try {
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    user = session?.user || null;
+  } catch (e) {}
+
+  const currentUserId = user?.id || null;
+  const catalogKey = getProjectsCatalogKey(currentUserId);
+  const detailKey = getProjectDetailKey(projectId, currentUserId);
+
   const newProject: Project = {
     id: projectId,
     name: meta.projectName || "Untitled Software Spec",
@@ -453,11 +517,11 @@ export async function saveAIProjectToSupabase(
     code: d.code,
   }));
 
-  // 1. SAVE TO LOCAL STORAGE CACHE (INSTANT AVAILABILITY)
+  // 1. SAVE TO USER-SCOPED LOCAL STORAGE CACHE
   if (typeof window !== "undefined") {
     try {
       localStorage.setItem(
-        `${LOCAL_PROJECT_PREFIX}${projectId}`,
+        detailKey,
         JSON.stringify({
           project: newProject,
           requirements,
@@ -468,29 +532,28 @@ export async function saveAIProjectToSupabase(
         })
       );
 
-      const existingCatalog = JSON.parse(localStorage.getItem(LOCAL_PROJECTS_KEY) || "[]");
+      const existingCatalog = JSON.parse(localStorage.getItem(catalogKey) || "[]");
       const filtered = existingCatalog.filter((p: any) => p.id !== projectId);
       filtered.unshift(newProject);
-      localStorage.setItem(LOCAL_PROJECTS_KEY, JSON.stringify(filtered));
+      localStorage.setItem(catalogKey, JSON.stringify(filtered));
     } catch (e) {
       console.warn("Local storage cache write error:", e);
     }
   }
 
+  invalidateProjectsCache();
+
   // 2. ATTEMPT SUPABASE POSTGRESQL INSERT
   try {
     const supabase = createClient();
-    let { data: { user } } = await supabase.auth.getUser();
+    let { data: { user: freshUser } } = await supabase.auth.getUser();
 
-    if (!user) {
-      const { data: { session } } = await supabase.auth.getSession();
-      user = session?.user || null;
-    }
+    const activeUser = freshUser || user;
 
-    if (user) {
+    if (activeUser) {
       await supabase.from("projects").upsert({
         id: projectId,
-        user_id: user.id,
+        user_id: activeUser.id,
         name: newProject.name,
         client_name: newProject.clientName,
         client_avatar: newProject.clientAvatar,
@@ -507,14 +570,14 @@ export async function saveAIProjectToSupabase(
         tech_stack: newProject.techStack,
         executive_summary: newProject.executiveSummary,
         scope_objectives: newProject.scopeObjectives,
-        out_of_scope: newProject.outOfScope,
+        outOfScope: newProject.outOfScope,
         updated_at: new Date().toISOString(),
       });
 
       if (requirements.length > 0) {
         const reqRows = requirements.map((r) => ({
           project_id: projectId,
-          user_id: user.id,
+          user_id: activeUser.id,
           code: r.code,
           title: r.title,
           description: r.description,
@@ -534,7 +597,7 @@ export async function saveAIProjectToSupabase(
       if (userStories.length > 0) {
         const storyRows = userStories.map((s) => ({
           project_id: projectId,
-          user_id: user.id,
+          user_id: activeUser.id,
           code: s.code,
           epic_title: s.epicTitle,
           title: s.title,
@@ -552,7 +615,7 @@ export async function saveAIProjectToSupabase(
       if (clarifications.length > 0) {
         const clarifyRows = clarifications.map((c) => ({
           project_id: projectId,
-          user_id: user.id,
+          user_id: activeUser.id,
           question: c.question,
           context_quote: c.contextQuote,
           document_source: c.documentSource,
@@ -569,7 +632,7 @@ export async function saveAIProjectToSupabase(
       if (diagrams.length > 0) {
         const diagRows = diagrams.map((d) => ({
           project_id: projectId,
-          user_id: user.id,
+          user_id: activeUser.id,
           title: d.title,
           type: d.type,
           badge: d.badge,
@@ -590,16 +653,29 @@ export async function saveAIProjectToSupabase(
  * Delete a project and all associated records from both local cache and Supabase
  */
 export async function deleteProject(projectId: string): Promise<boolean> {
+  let user: any = null;
+  try {
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    user = session?.user || null;
+  } catch (e) {}
+
+  const currentUserId = user?.id || null;
+  const catalogKey = getProjectsCatalogKey(currentUserId);
+  const detailKey = getProjectDetailKey(projectId, currentUserId);
+
   // 1. Remove from local storage
   if (typeof window !== "undefined") {
     try {
-      localStorage.removeItem(`${LOCAL_PROJECT_PREFIX}${projectId}`);
-      const stored = localStorage.getItem(LOCAL_PROJECTS_KEY);
+      localStorage.removeItem(detailKey);
+      localStorage.removeItem(`${LEGACY_PROJECT_PREFIX}${projectId}`);
+      const stored = localStorage.getItem(catalogKey);
       if (stored) {
         const catalog: Project[] = JSON.parse(stored);
         const updated = catalog.filter((p) => p.id !== projectId);
-        localStorage.setItem(LOCAL_PROJECTS_KEY, JSON.stringify(updated));
+        localStorage.setItem(catalogKey, JSON.stringify(updated));
       }
+      localStorage.removeItem(LEGACY_PROJECTS_KEY);
     } catch (e) {
       console.warn("Local storage deletion error:", e);
     }

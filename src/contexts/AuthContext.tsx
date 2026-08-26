@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import { invalidateProjectsCache } from "@/lib/services/projectService";
 
 export interface UserProfile {
   id: string;
@@ -43,24 +44,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   // Helper to extract clean profile from user
-  const extractProfile = (currentUser: User | null): UserProfile => {
+  const extractProfile = (currentUser: User | null): UserProfile | null => {
     if (!currentUser) {
-      if (typeof window !== "undefined") {
-        const savedCustomProfile = localStorage.getItem("specguard_custom_profile");
-        if (savedCustomProfile) {
-          try {
-            return JSON.parse(savedCustomProfile);
-          } catch {}
-        }
-      }
-      return {
-        id: "guest-user",
-        email: "agency@specguard.ai",
-        fullName: "Agency Partner",
-        role: "agency",
-        companyName: "Apex Digital Studio",
-        techStack: ["Next.js", "Tailwind", "Supabase", "Llama 3.3"],
-      };
+      return null;
     }
 
     const meta = currentUser.user_metadata || {};
@@ -106,27 +92,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let isMounted = true;
 
+    // 1. Listen for real-time auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      if (!isMounted) return;
+
+      invalidateProjectsCache();
+
+      if (newSession?.user) {
+        setSession(newSession);
+        setUser(newSession.user);
+        setProfile(extractProfile(newSession.user));
+      } else {
+        setSession(null);
+        setUser(null);
+        setProfile(extractProfile(null));
+      }
+      setIsLoading(false);
+    });
+
+    // 2. Initial instant check from cached session
     const getInitialSession = async () => {
       try {
-        const [{ data: sessionData }, { data: userData }] = await Promise.all([
-          supabase.auth.getSession(),
-          supabase.auth.getUser(),
-        ]);
-
+        const { data: { session: existingSession } } = await supabase.auth.getSession();
         if (isMounted) {
-          const currentSession = sessionData?.session ?? null;
-          const currentUser = userData?.user ?? currentSession?.user ?? null;
-
-          setSession(currentSession);
-          setUser(currentUser);
-          setProfile(extractProfile(currentUser));
+          if (existingSession?.user) {
+            setSession(existingSession);
+            setUser(existingSession.user);
+            setProfile(extractProfile(existingSession.user));
+          } else {
+            setSession(null);
+            setUser(null);
+            setProfile(extractProfile(null));
+          }
+          setIsLoading(false);
         }
       } catch (err) {
-        console.warn("Supabase initialization error:", err);
-        if (isMounted) {
-          setProfile(extractProfile(null));
-        }
-      } finally {
+        console.warn("Supabase session init error:", err);
         if (isMounted) {
           setIsLoading(false);
         }
@@ -134,16 +135,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     getInitialSession();
-
-    // Listen for real-time auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      if (isMounted) {
-        setSession(newSession);
-        setUser(newSession?.user ?? null);
-        setProfile(extractProfile(newSession?.user ?? null));
-        setIsLoading(false);
-      }
-    });
 
     return () => {
       isMounted = false;
@@ -197,10 +188,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       provider,
       options: {
         redirectTo: `${origin}/auth/callback?next=/dashboard`,
-        queryParams: {
-          access_type: "offline",
-          prompt: "select_account",
-        },
       },
     });
 
@@ -254,6 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     setIsLoading(true);
+    invalidateProjectsCache();
     try {
       try {
         await fetch("/api/auth/signout", { method: "POST" });
@@ -267,13 +255,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(extractProfile(null));
 
       if (typeof window !== "undefined") {
+        localStorage.removeItem("specguard_custom_profile");
         sessionStorage.clear();
-        window.location.href = "/login";
+        window.location.replace("/login");
       }
     } catch (err) {
       console.error("Sign out error:", err);
       if (typeof window !== "undefined") {
-        window.location.href = "/login";
+        window.location.replace("/login");
       }
     } finally {
       setIsLoading(false);

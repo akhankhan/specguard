@@ -71,7 +71,10 @@ export function GoogleOnboardingModal({ isOpen, onClose }: GoogleOnboardingModal
       });
 
       if (typeof window !== "undefined") {
-        localStorage.setItem("specguard_onboarding_completed", "true");
+        if (user?.id) {
+          localStorage.setItem(`specguard_onboarding_${user.id}`, "true");
+        }
+        localStorage.removeItem("specguard_onboarding_completed");
         // Also remove onboarding query param from URL
         const url = new URL(window.location.href);
         url.searchParams.delete("onboarding");
@@ -95,12 +98,25 @@ export function GoogleOnboardingModal({ isOpen, onClose }: GoogleOnboardingModal
     }
   };
 
-  const userEmail = user?.email || profile?.email || "agency@specguard.ai";
+  const handleDismiss = () => {
+    if (typeof window !== "undefined") {
+      if (user?.id) {
+        localStorage.setItem(`specguard_onboarding_${user.id}`, "true");
+      }
+      localStorage.setItem("specguard_onboarding_completed", "true");
+      const url = new URL(window.location.href);
+      url.searchParams.delete("onboarding");
+      window.history.replaceState({}, "", url.toString());
+    }
+    onClose();
+  };
+
+  const userEmail = user?.email || profile?.email || "";
 
   return (
     <Modal
       isOpen={isOpen}
-      onClose={() => {}} // Non-closable without completing
+      onClose={handleDismiss}
       title="Complete Your Agency Workspace Setup"
       description="Tailor your AI requirement engine, client contract headers, and Scope Guard™ rules."
       maxWidth="xl"
@@ -113,6 +129,7 @@ export function GoogleOnboardingModal({ isOpen, onClose }: GoogleOnboardingModal
               <img
                 src={profile.avatarUrl}
                 alt={fullName}
+                referrerPolicy="no-referrer"
                 className="w-10 h-10 rounded-full object-cover border border-sky-300 dark:border-sky-600"
               />
             ) : (
